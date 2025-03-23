@@ -1,106 +1,125 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import '../App.css';
 
-const Albums = () => {
+const safeJsonArray = (val) => {
+  try {
+    if (Array.isArray(val)) return val;
+    if (typeof val === 'string') {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+};
+
+function Albums() {
   const [albums, setAlbums] = useState([]);
-  const [formData, setFormData] = useState({
+  const [songs, setSongs] = useState([]);
+  const [artists, setArtists] = useState([]);
+  const [form, setForm] = useState({
     name: '',
     artist_id: '',
     release_year: '',
     listens: '',
-    songs: ''
+    songs: []
   });
-  const [selectedId, setSelectedId] = useState(null);
-
-  const fetchAlbums = () => {
-    axios.get('http://localhost:3001/albums')
-      .then(res => setAlbums(res.data))
-      .catch(err => console.error(err));
-  };
+  const [editingId, setEditingId] = useState(null);
 
   useEffect(() => {
-    fetchAlbums();
+    fetchAll();
   }, []);
 
-  const handleCreate = () => {
-    const data = {
-      ...formData,
-      artist_id: parseInt(formData.artist_id),
-      release_year: parseInt(formData.release_year),
-      listens: parseInt(formData.listens),
-      songs: formData.songs.split(',').map(id => parseInt(id.trim()))
+  const fetchAll = async () => {
+    const [albumsRes, songsRes, artistsRes] = await Promise.all([
+      axios.get('http://localhost:3001/albums'),
+      axios.get('http://localhost:3001/songs'),
+      axios.get('http://localhost:3001/artists')
+    ]);
+    setAlbums(albumsRes.data);
+    setSongs(songsRes.data);
+    setArtists(artistsRes.data);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleMultiSelect = (e) => {
+    const { name, selectedOptions } = e.target;
+    const selected = Array.from(selectedOptions, (opt) => parseInt(opt.value));
+    setForm((prev) => ({ ...prev, [name]: selected }));
+  };
+
+  const handleSubmit = async () => {
+    const payload = {
+      ...form,
+      songs: JSON.stringify(form.songs)
     };
-
-    axios.post('http://localhost:3001/albums', data)
-      .then(() => {
-        fetchAlbums();
-        setFormData({ name: '', artist_id: '', release_year: '', listens: '', songs: '' });
-      })
-      .catch(err => console.error(err));
+    if (editingId) {
+      await axios.put(`http://localhost:3001/albums/${editingId}`, payload);
+    } else {
+      await axios.post('http://localhost:3001/albums', payload);
+    }
+    setForm({ name: '', artist_id: '', release_year: '', listens: '', songs: [] });
+    setEditingId(null);
+    fetchAll();
   };
 
-  const handleUpdate = () => {
-    const data = {
-      ...formData,
-      artist_id: parseInt(formData.artist_id),
-      release_year: parseInt(formData.release_year),
-      listens: parseInt(formData.listens),
-      songs: formData.songs.split(',').map(id => parseInt(id.trim()))
-    };
-
-    axios.put(`http://localhost:3001/albums/${selectedId}`, data)
-      .then(() => {
-        fetchAlbums();
-        setFormData({ name: '', artist_id: '', release_year: '', listens: '', songs: '' });
-        setSelectedId(null);
-      })
-      .catch(err => console.error(err));
-  };
-
-  const handleDelete = (id) => {
-    axios.delete(`http://localhost:3001/albums/${id}`)
-      .then(() => fetchAlbums())
-      .catch(err => console.error(err));
-  };
-
-  const handleSelect = (album) => {
-    setSelectedId(album.id);
-    setFormData({
+  const handleEdit = (album) => {
+    setForm({
       name: album.name,
       artist_id: album.artist_id,
       release_year: album.release_year,
       listens: album.listens,
-      songs: JSON.parse(album.songs).join(',')
+      songs: safeJsonArray(album.songs)
     });
+    setEditingId(album.id);
+  };
+
+  const handleDelete = async (id) => {
+    await axios.delete(`http://localhost:3001/albums/${id}`);
+    fetchAll();
   };
 
   return (
-    <div className="container">
+    <div className="form-container">
       <h2>Album Management</h2>
-      <input placeholder="Album Title" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-      <input placeholder="Artist ID" value={formData.artist_id} onChange={e => setFormData({ ...formData, artist_id: e.target.value })} />
-      <input placeholder="Year of release" value={formData.release_year} onChange={e => setFormData({ ...formData, release_year: e.target.value })} />
-      <input placeholder="Number of plays" value={formData.listens} onChange={e => setFormData({ ...formData, listens: e.target.value })} />
-      <input placeholder="Song ID List" value={formData.songs} onChange={e => setFormData({ ...formData, songs: e.target.value })} />
-      <button onClick={selectedId ? handleUpdate : handleCreate}>{selectedId ? 'Upload' : 'Creat'}</button>
+      <input className="input" name="name" placeholder="Album Name" value={form.name} onChange={handleChange} />
+      <select className="select" name="artist_id" value={form.artist_id} onChange={handleChange}>
+        <option value="">Select Artist</option>
+        {artists.map((a) => (
+          <option key={a.id} value={a.id}>{a.name} (ID: {a.id})</option>
+        ))}
+      </select>
+      <input className="input" name="release_year" placeholder="Release Year" value={form.release_year} onChange={handleChange} />
+      <input className="input" name="listens" placeholder="Listens" value={form.listens} onChange={handleChange} />
+      <label>Songs:</label>
+      <select className="select" name="songs" multiple value={form.songs} onChange={handleMultiSelect}>
+        {songs.map((s) => (
+          <option key={s.id} value={s.id}>{s.name} (ID: {s.id})</option>
+        ))}
+      </select>
+      <button className="button" onClick={handleSubmit}>
+        {editingId ? 'Update' : 'Create'}
+      </button>
 
       <h3>Album List</h3>
-      <ul>
-        {albums.map(album => (
-          <li key={album.id}>
-            <b>{album.name}</b> | Year：{album.release_year} | listeners：{album.listens}
-            <br />
-            Artist ID: {album.artist_id} <br />
-            Song ID List: {album.songs}
-            <br />
-            <button onClick={() => handleSelect(album)}>Edit</button>
-            <button onClick={() => handleDelete(album.id)}>Delete</button>
-            <hr />
-          </li>
-        ))}
-      </ul>
+      {albums.map((a) => (
+        <div key={a.id} className="list-item">
+          <strong>{a.name}</strong> | Artist ID: {a.artist_id} <br />
+          Songs: {safeJsonArray(a.songs).join(', ')}
+          <div>
+            <button className="button edit" onClick={() => handleEdit(a)}>Edit</button>
+            <button className="button delete" onClick={() => handleDelete(a.id)}>Delete</button>
+          </div>
+        </div>
+      ))}
     </div>
   );
-};
+}
 
 export default Albums;
